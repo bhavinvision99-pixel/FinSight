@@ -96,8 +96,12 @@ export const ScenarioLabTab: React.FC<ScenarioLabTabProps> = ({
 
   // Custom lever creation modal/state
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newLeverName, setNewLeverName] = useState('');
-  const [newLeverTarget, setNewLeverTarget] = useState<'revenue' | 'operating_expense'>('revenue');
+  const [leverArchetype, setLeverArchetype] = useState<'hire' | 'price' | 'cost_cut' | 'churn' | 'custom'>('hire');
+  const [newLeverName, setNewLeverName] = useState('Hire 2 Team Members');
+  const [employeeCount, setEmployeeCount] = useState<number>(2);
+  const [salaryPerEmployee, setSalaryPerEmployee] = useState<number>(60000);
+  const [newLeverTarget, setNewLeverTarget] = useState<'revenue' | 'operating_expense'>('operating_expense');
+  const [newLeverCategory, setNewLeverCategory] = useState<string>('Salaries & Payroll');
   const [newLeverDeltaPct, setNewLeverDeltaPct] = useState<number>(5);
   const [newLeverFixed, setNewLeverFixed] = useState<number>(0);
 
@@ -120,23 +124,93 @@ export const ScenarioLabTab: React.FC<ScenarioLabTabProps> = ({
     setLevers(prev => prev.filter(l => l.id !== id));
   };
 
+  const handleArchetypeChange = (arch: 'hire' | 'price' | 'cost_cut' | 'churn' | 'custom') => {
+    setLeverArchetype(arch);
+    if (arch === 'hire') {
+      setNewLeverName(`Hire ${employeeCount} Team Members`);
+      setNewLeverTarget('operating_expense');
+      setNewLeverCategory('Salaries & Payroll');
+    } else if (arch === 'price') {
+      setNewLeverName('SaaS Price Increase');
+      setNewLeverTarget('revenue');
+      setNewLeverCategory('Software Subscription');
+      setNewLeverDeltaPct(10);
+    } else if (arch === 'cost_cut') {
+      setNewLeverName('Cloud Cost Optimization');
+      setNewLeverTarget('operating_expense');
+      setNewLeverCategory('Cloud Hosting');
+      setNewLeverDeltaPct(-15);
+    } else if (arch === 'churn') {
+      setNewLeverName('Enterprise Customer Churn');
+      setNewLeverTarget('revenue');
+      setNewLeverDeltaPct(-5);
+    } else {
+      setNewLeverName('');
+      setNewLeverTarget('operating_expense');
+    }
+  };
+
   const handleAddCustomLever = () => {
     if (!newLeverName.trim()) return;
+
+    let finalType: any = 'custom';
+    let finalTarget: 'revenue' | 'operating_expense' | 'category' = newLeverTarget;
+    let finalCat: string | undefined = undefined;
+    let finalFixed: number | undefined = undefined;
+    let finalPct: number | undefined = undefined;
+    let finalNotes = 'Custom scenario assumption.';
+
+    const nameLower = newLeverName.toLowerCase();
+    const isHire =
+      leverArchetype === 'hire' ||
+      nameLower.includes('employee') ||
+      nameLower.includes('hire') ||
+      nameLower.includes('staff') ||
+      nameLower.includes('headcount');
+
+    if (isHire) {
+      finalType = 'hire_staff';
+      finalTarget = 'category';
+      finalCat = 'Salaries & Payroll';
+      finalFixed = employeeCount > 0 && salaryPerEmployee > 0 ? employeeCount * salaryPerEmployee : (newLeverFixed || 120000);
+      finalNotes = `${employeeCount} employee(s) at £${salaryPerEmployee.toLocaleString()}/yr overhead. Increases operating costs.`;
+    } else if (leverArchetype === 'price') {
+      finalType = 'price_change';
+      finalTarget = 'revenue';
+      finalPct = newLeverDeltaPct;
+      finalNotes = `${newLeverDeltaPct > 0 ? '+' : ''}${newLeverDeltaPct}% revenue adjustment.`;
+    } else if (leverArchetype === 'cost_cut') {
+      finalType = 'cost_reduction';
+      finalTarget = 'category';
+      finalCat = newLeverCategory || 'Cloud Hosting';
+      finalPct = newLeverDeltaPct < 0 ? newLeverDeltaPct : -newLeverDeltaPct;
+      finalNotes = `Reduces ${finalCat} operating expense.`;
+    } else if (leverArchetype === 'churn') {
+      finalType = 'customer_churn';
+      finalTarget = 'revenue';
+      finalPct = newLeverDeltaPct < 0 ? newLeverDeltaPct : -newLeverDeltaPct;
+      finalNotes = `Simulates revenue attrition.`;
+    } else {
+      finalType = 'custom';
+      finalTarget = newLeverTarget;
+      finalPct = newLeverDeltaPct !== 0 ? newLeverDeltaPct : undefined;
+      finalFixed = newLeverFixed !== 0 ? newLeverFixed : undefined;
+    }
+
     const newL: ScenarioLever = {
       id: `custom_${Date.now()}`,
       name: newLeverName.trim(),
-      type: 'custom',
-      impactTarget: newLeverTarget,
-      percentageDelta: newLeverDeltaPct !== 0 ? newLeverDeltaPct : undefined,
-      fixedAnnualDelta: newLeverFixed !== 0 ? newLeverFixed : undefined,
+      type: finalType,
+      impactTarget: finalTarget,
+      targetCategory: finalCat,
+      percentageDelta: finalPct,
+      fixedAnnualDelta: finalFixed,
       enabled: true,
-      notes: 'Custom scenario assumption.',
+      notes: finalNotes,
     };
+
     setLevers(prev => [...prev, newL]);
     setShowAddModal(false);
-    setNewLeverName('');
-    setNewLeverDeltaPct(5);
-    setNewLeverFixed(0);
   };
 
   const handleRunAiStressTest = async () => {
@@ -252,13 +326,55 @@ export const ScenarioLabTab: React.FC<ScenarioLabTabProps> = ({
 
               <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
                 <span className="text-slate-500 font-medium capitalize">
-                  Target: {lever.targetCategory || lever.impactTarget.replace('_', ' ')}
+                  {lever.targetCategory || (lever.impactTarget === 'operating_expense' ? 'Operating Expenses' : 'Revenue')}
                 </span>
-                <span className="font-mono font-bold text-teal-700">
-                  {lever.percentageDelta !== undefined
-                    ? `${lever.percentageDelta > 0 ? '+' : ''}${lever.percentageDelta}%`
-                    : formatGBP(lever.fixedAnnualDelta || 0)}
-                </span>
+
+                {(() => {
+                  const nameL = lever.name.toLowerCase();
+                  const isCostIncrease =
+                    lever.type === 'hire_staff' ||
+                    nameL.includes('employee') ||
+                    nameL.includes('hire') ||
+                    nameL.includes('staff') ||
+                    (lever.impactTarget === 'operating_expense' && (lever.fixedAnnualDelta || 0) > 0);
+
+                  const isCostSavings =
+                    lever.type === 'cost_reduction' ||
+                    (lever.percentageDelta !== undefined && lever.percentageDelta < 0 && lever.impactTarget !== 'revenue');
+
+                  const isRevGrowth =
+                    lever.impactTarget === 'revenue' &&
+                    ((lever.percentageDelta || 0) > 0 || (lever.fixedAnnualDelta || 0) > 0);
+
+                  if (isCostIncrease) {
+                    return (
+                      <span className="font-mono font-bold text-rose-600 flex items-center gap-0.5 bg-rose-50 px-2 py-0.5 rounded">
+                        <TrendingDown className="w-3 h-3" /> Cost: +{formatGBP(lever.fixedAnnualDelta || 0)}
+                      </span>
+                    );
+                  }
+                  if (isCostSavings) {
+                    return (
+                      <span className="font-mono font-bold text-emerald-700 flex items-center gap-0.5 bg-emerald-50 px-2 py-0.5 rounded">
+                        <TrendingUp className="w-3 h-3" /> Savings: {lever.percentageDelta}%
+                      </span>
+                    );
+                  }
+                  if (isRevGrowth) {
+                    return (
+                      <span className="font-mono font-bold text-emerald-700 flex items-center gap-0.5 bg-emerald-50 px-2 py-0.5 rounded">
+                        <TrendingUp className="w-3 h-3" /> Revenue: +{lever.percentageDelta}%
+                      </span>
+                    );
+                  }
+                  return (
+                    <span className="font-mono font-bold text-slate-700">
+                      {lever.percentageDelta !== undefined
+                        ? `${lever.percentageDelta > 0 ? '+' : ''}${lever.percentageDelta}%`
+                        : formatGBP(lever.fixedAnnualDelta || 0)}
+                    </span>
+                  );
+                })()}
               </div>
             </div>
           ))}
@@ -422,68 +538,168 @@ export const ScenarioLabTab: React.FC<ScenarioLabTabProps> = ({
       {/* Modal for Adding Custom Lever */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200 space-y-4">
-            <h3 className="text-base font-bold text-slate-900">Define Custom Scenario Lever</h3>
+          <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-slate-200 space-y-4">
+            <h3 className="text-base font-bold text-slate-900">Define Strategic Scenario Lever</h3>
 
+            {/* Archetype Selector */}
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Lever Name / Strategic Goal</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1.5">Decision Archetype</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { id: 'hire', label: '👥 Hire Staff / Team' },
+                  { id: 'price', label: '💰 Price Shift' },
+                  { id: 'cost_cut', label: '📉 Cut Costs' },
+                  { id: 'custom', label: '⚙️ Custom' },
+                ].map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleArchetypeChange(item.id as any)}
+                    className={`p-2 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer border ${
+                      leverArchetype === item.id
+                        ? 'bg-teal-50 border-teal-500 text-teal-900 shadow-2xs'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Name input */}
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1">Lever Description</label>
               <input
                 type="text"
-                placeholder="e.g. Expand into North America, Cut Travel 20%..."
+                placeholder="e.g. Hire 2 Senior Engineers, 10% Price Bump..."
                 value={newLeverName}
                 onChange={e => setNewLeverName(e.target.value)}
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Target Dimension</label>
-                <select
-                  value={newLeverTarget}
-                  onChange={e => setNewLeverTarget(e.target.value as any)}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg"
-                >
-                  <option value="revenue">Total Revenue</option>
-                  <option value="operating_expense">Operating Expenses</option>
-                </select>
+            {/* If Hiring Archetype */}
+            {leverArchetype === 'hire' ? (
+              <div className="space-y-3 bg-rose-50/50 p-3.5 rounded-xl border border-rose-200">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Number of Employees</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={employeeCount}
+                      onChange={e => {
+                        const count = Math.max(1, parseInt(e.target.value, 10) || 1);
+                        setEmployeeCount(count);
+                        setNewLeverName(`Hire ${count} Team Member${count > 1 ? 's' : ''}`);
+                      }}
+                      className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Annual Salary & On-cost per Hire</label>
+                    <input
+                      type="number"
+                      step="5000"
+                      value={salaryPerEmployee}
+                      onChange={e => setSalaryPerEmployee(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs pt-2 border-t border-rose-200 text-rose-800 font-semibold">
+                  <span>Operating Cost Impact:</span>
+                  <span className="font-mono text-sm font-black text-rose-700">
+                    +{formatGBP(employeeCount * salaryPerEmployee)} / yr (Salaries & Payroll)
+                  </span>
+                </div>
               </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Percentage Shift (%)</label>
-                <input
-                  type="number"
-                  value={newLeverDeltaPct}
-                  onChange={e => setNewLeverDeltaPct(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg"
-                />
+            ) : leverArchetype === 'price' ? (
+              <div className="bg-teal-50/50 p-3.5 rounded-xl border border-teal-200 space-y-2">
+                <label className="text-xs font-bold text-slate-700 block">Subscription Price Adjustment (%)</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    value={newLeverDeltaPct}
+                    onChange={e => setNewLeverDeltaPct(parseFloat(e.target.value) || 0)}
+                    className="w-32 px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-bold"
+                  />
+                  <span className="text-xs text-teal-800 font-semibold">
+                    Increases recurring ARR directly
+                  </span>
+                </div>
               </div>
-            </div>
+            ) : leverArchetype === 'cost_cut' ? (
+              <div className="bg-emerald-50/50 p-3.5 rounded-xl border border-emerald-200 space-y-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Target Expense Category</label>
+                    <select
+                      value={newLeverCategory}
+                      onChange={e => setNewLeverCategory(e.target.value)}
+                      className="w-full px-2.5 py-2 text-xs bg-white border border-slate-300 rounded-lg"
+                    >
+                      <option value="Cloud Hosting">Cloud Hosting</option>
+                      <option value="Software Licences">Software Licences</option>
+                      <option value="Marketing & Ads">Marketing & Ads</option>
+                      <option value="Office & Facilities">Office & Facilities</option>
+                      <option value="Legal & Accounting">Legal & Accounting</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">Percentage Reduction (%)</label>
+                    <input
+                      type="number"
+                      value={Math.abs(newLeverDeltaPct)}
+                      onChange={e => setNewLeverDeltaPct(-Math.abs(parseFloat(e.target.value) || 0))}
+                      className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg font-bold text-emerald-800"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">Impact Target</label>
+                  <select
+                    value={newLeverTarget}
+                    onChange={e => setNewLeverTarget(e.target.value as any)}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg"
+                  >
+                    <option value="operating_expense">Operating Expenses (Cost)</option>
+                    <option value="revenue">Total Revenue</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">Fixed Annual Amount (£)</label>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={newLeverFixed || ''}
+                    onChange={e => setNewLeverFixed(parseFloat(e.target.value) || 0)}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                  />
+                </div>
+              </div>
+            )}
 
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">Or Fixed Annual Delta (£)</label>
-              <input
-                type="number"
-                placeholder="0"
-                value={newLeverFixed || ''}
-                onChange={e => setNewLeverFixed(parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-lg"
+                className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddCustomLever}
                 disabled={!newLeverName.trim()}
-                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-bold"
+                className="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-bold shadow-2xs cursor-pointer transition-colors"
               >
-                Add Lever to Simulator
+                Apply Lever to Model
               </button>
             </div>
           </div>

@@ -347,28 +347,42 @@ export function simulateScenario(
     let revImpact = 0;
     let expImpact = 0;
 
-    if (lever.impactTarget === 'revenue') {
-      if (lever.percentageDelta) {
-        revImpact += (baseKPIs.totalRevenue * lever.percentageDelta) / 100;
-      }
-      if (lever.fixedAnnualDelta) {
-        revImpact += lever.fixedAnnualDelta;
-      }
-    } else if (lever.impactTarget === 'operating_expense') {
-      if (lever.percentageDelta) {
-        expImpact += (baseKPIs.totalOperatingExpenses * lever.percentageDelta) / 100;
-      }
-      if (lever.fixedAnnualDelta) {
-        expImpact += lever.fixedAnnualDelta;
-      }
+    const leverNameLower = lever.name.toLowerCase();
+    const isHireOrStaff =
+      lever.type === 'hire_staff' ||
+      leverNameLower.includes('employee') ||
+      leverNameLower.includes('hire') ||
+      leverNameLower.includes('staff') ||
+      leverNameLower.includes('headcount') ||
+      leverNameLower.includes('engineer') ||
+      leverNameLower.includes('payroll') ||
+      leverNameLower.includes('salary');
+
+    const isKnownExpenseCategory =
+      lever.targetCategory === 'Salaries & Payroll' ||
+      lever.targetCategory === 'Cloud Hosting' ||
+      lever.targetCategory === 'Marketing & Ads' ||
+      lever.targetCategory === 'Office & Facilities' ||
+      lever.targetCategory === 'Software Licences' ||
+      lever.targetCategory === 'Legal & Accounting' ||
+      lever.targetCategory === 'Hardware & Equipment';
+
+    if (isHireOrStaff) {
+      // Adding staff or hiring employees is strictly an operating cost increase!
+      const delta = lever.fixedAnnualDelta !== undefined
+        ? lever.fixedAnnualDelta
+        : (lever.percentageDelta ? (baseKPIs.totalOperatingExpenses * lever.percentageDelta) / 100 : 0);
+      expImpact += Math.abs(delta);
     } else if (lever.impactTarget === 'category' && lever.targetCategory) {
       const catBaseAmount = baseTxs
-        .filter(t => t.category === lever.targetCategory)
+        .filter(t => t.category.toLowerCase() === lever.targetCategory!.toLowerCase())
         .reduce((s, t) => s + t.netAmount, 0);
 
-      const isExpenseCat = baseTxs.some(t => t.category === lever.targetCategory && t.type === 'expense');
+      const isExpenseCat =
+        isKnownExpenseCategory ||
+        baseTxs.some(t => t.category.toLowerCase() === lever.targetCategory!.toLowerCase() && t.type === 'expense');
 
-      const delta = lever.percentageDelta
+      const delta = lever.percentageDelta !== undefined
         ? (catBaseAmount * lever.percentageDelta) / 100
         : (lever.fixedAnnualDelta || 0);
 
@@ -376,6 +390,20 @@ export function simulateScenario(
         expImpact += delta;
       } else {
         revImpact += delta;
+      }
+    } else if (lever.impactTarget === 'operating_expense' || isKnownExpenseCategory) {
+      if (lever.percentageDelta) {
+        expImpact += (baseKPIs.totalOperatingExpenses * lever.percentageDelta) / 100;
+      }
+      if (lever.fixedAnnualDelta) {
+        expImpact += lever.fixedAnnualDelta;
+      }
+    } else if (lever.impactTarget === 'revenue') {
+      if (lever.percentageDelta) {
+        revImpact += (baseKPIs.totalRevenue * lever.percentageDelta) / 100;
+      }
+      if (lever.fixedAnnualDelta) {
+        revImpact += lever.fixedAnnualDelta;
       }
     }
 
