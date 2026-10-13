@@ -1,0 +1,6 @@
+{
+  "name": "FinSight — AI Financial Intelligence & Scenario Modelling",
+  "description": "Turn financial data into better decisions. Deep financial analytics, natural-language AI financial analyst, scenario lab, and forecasting for CFOs and business owners.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
